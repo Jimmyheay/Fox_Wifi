@@ -32,6 +32,26 @@ When a deauth packet is detected left LED bar will became red and for every EAPO
 ![ui](./Purple_Hash_Monster_Sprites/64/happy3_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/happy_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/happy4_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/happy2_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/love_64.png)  ![ui](./Purple_Hash_Monster_Sprites/64/surprise_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/angry_64.png)  ![ui](./Purple_Hash_Monster_Sprites/64/bored1_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/bored2_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/bored3_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/sleep1_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/scare_64.png)
 
 
+## WiFi Fox dashboard
+
+The M5Stack screen uses a 128×128 direct-drawn fox, a compact metrics panel and
+one yellow RSSI history graph. The previous green packet graph and its buffers
+were removed to leave more display and RAM available for monitoring.
+
+The passive analyzer records EAPOL message classes, completed four-way handshake
+observations, PMKID KDE records, WPA3/SAE advertisements, WPA2/WPA3 transition
+mode and PMF capability. It does not inject frames, alter authentication, or try
+passwords. The WPA3 and PMF indicators describe observed advertisements; they do
+not prove that an access point is secure.
+
+Host-side parser checks can be run with:
+
+```sh
+g++ -std=c++11 -Wall -Wextra -Werror -IESP32-WiFi-Hash-Monster \
+  ESP32-WiFi-Hash-Monster/SecurityAnalyzer.cpp tests/security_analyzer_test.cpp \
+  -o /tmp/security_analyzer_test && /tmp/security_analyzer_test
+```
+
 Use Arduino IDE to compile it, tested with (ESP32 version 1.0.4) M5stack-fire.
 
 

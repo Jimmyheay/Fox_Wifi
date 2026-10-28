@@ -64,6 +64,7 @@
 #include "Buffer.h"
 #include "DashboardLayout.h"
 #include "FoxMascot.h"
+#include "SecurityAnalyzer.h"
 #include "FS.h"
 #include "SD.h"
 
@@ -119,6 +120,15 @@ uint32_t total_deauths = 0; // deauth total frames
 
 uint32_t eapol = 0;         // eapol frames per second
 uint32_t total_eapol = 0;   // eapol total frames
+volatile uint32_t eapol_messages[4] = {0, 0, 0, 0};
+volatile uint32_t complete_handshakes = 0;
+volatile uint32_t pmkids_observed = 0;
+volatile uint32_t sae_commits = 0;
+volatile uint32_t sae_confirms = 0;
+volatile uint32_t sae_legacy_groups = 0;
+uint32_t wpa3_aps = 0;
+uint32_t transition_aps = 0;
+uint32_t resilience_findings = 0;
 
 unsigned int ch = 1;  // current 802.11 channel
 unsigned int bright = 100;  // default
@@ -208,6 +218,32 @@ struct ssid_info
 ssid_info ssid_known[MAX_SSIDs];
 uint32_t ssid_count = 0;  //
 uint32_t ssid_eapol_count= 0;       // eapol frames per second
+
+struct HandshakeState {
+  uint8_t ap[6];
+  uint8_t station[6];
+  uint8_t messages;
+  uint32_t lastSeen;
+};
+static HandshakeState handshakeStates[8] = {};
+
+static void trackHandshake(const uint8_t* frame, uint32_t length, uint8_t message)
+{
+  uint8_t ap[6], station[6];
+  if (!getInfrastructurePeers(frame, length, ap, station) || message < 1 || message > 4) return;
+  const uint32_t now = millis();
+  HandshakeState* state = &handshakeStates[0];
+  for (auto& candidate : handshakeStates) {
+    if (!memcmp(candidate.ap, ap, 6) && !memcmp(candidate.station, station, 6)) { state = &candidate; break; }
+    if (!candidate.lastSeen || uint32_t(now - candidate.lastSeen) > 10000) state = &candidate;
+  }
+  if (memcmp(state->ap, ap, 6) || memcmp(state->station, station, 6) || uint32_t(now - state->lastSeen) > 10000) {
+    memcpy(state->ap, ap, 6); memcpy(state->station, station, 6); state->messages = 0;
+  }
+  state->messages |= uint8_t(1u << (message - 1));
+  state->lastSeen = now;
+  if (state->messages == 0x0f) { ++complete_handshakes; state->messages = 0; }
+}
 
 
 void setupWiFiPromisc()
@@ -547,9 +583,12 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
   wifi_pkt_rx_ctrl_t ctrl = (wifi_pkt_rx_ctrl_t)pkt->rx_ctrl;
 
   if (type == WIFI_PKT_MISC) return;   // wrong packet type
-  if (ctrl.sig_len > 293) return; // packet too long
+  if (ctrl.sig_len < 24 || ctrl.sig_len > SNAP_LEN) return;
   uint32_t packetLength = ctrl.sig_len;
-  if (type == WIFI_PKT_MGMT) packetLength -= 4;
+  if (type == WIFI_PKT_MGMT) {
+    if (packetLength < 4) return;
+    packetLength -= 4;
+  }
   // fix for known bug in the IDF
   // https://github.com/espressif/esp-idf/issues/886
   //Serial.print(".");
@@ -569,8 +608,12 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
     #endif
   }
 
-  if (( (pkt->payload[30] == 0x88 && pkt->payload[31] == 0x8e)|| ( pkt->payload[32] == 0x88 && pkt->payload[33] == 0x8e) )){
+  EapolKeyFrame keyFrame{};
+  if (parseEapolKeyFrame(pkt->payload, packetLength, &keyFrame)) {
     eapol++;  // new eapol packets :)
+    ++eapol_messages[keyFrame.message - 1];
+    pmkids_observed += keyFrame.pmkidCount;
+    trackHandshake(pkt->payload, packetLength, keyFrame.message);
 
     #ifdef ARDUINO_M5STACK_FIRE
       // turn right led in green
@@ -590,10 +633,11 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
         if (!ssid_known[u].ssid_eapol) {
           ssid_eapol_count++;
           ssid_known[u].ssid_eapol = true;
-          for(int i = 0; i < ssid_known[u].ssid_len ; i++) {
+          const uint8_t knownLength = ssid_known[u].ssid_len > 32 ? 32 : ssid_known[u].ssid_len;
+          for(int i = 0; i < knownLength; i++) {
             last_eapol_ssid[i] = ssid_known[u].ssid[i];
           }
-          last_eapol_ssid[ssid_known[u].ssid_len+1]=0;
+          last_eapol_ssid[knownLength] = 0;
           snprintf( last_eapol_mac, 18, "%s", ether_ntoa(ssid_known[u].mac) );
 
           Serial.printf("[EAPOL] Found new MAC: %s (SSID: %s)\n",
@@ -636,6 +680,9 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
   */
 
   if ((frameSubType == SUBTYPE_BEACONS) && (version == 0) ) {
+    RsnInfo rsn{};
+    const bool hasRsn = packetLength > 36 && parseRsnInformationElements(pkt->payload + 36, packetLength - 36, &rsn);
+    if (packetLength < 38) return;
     uint8_t SSID_length = pkt->payload[37];
     if (SSID_length>32) return;
 
@@ -664,13 +711,18 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
     }
 
     if (!known) {
+      if (ssid_count >= MAX_SSIDs - 1) return; // last entry is the comparison scratch slot
+      // Count AP capabilities once, when the BSSID is first observed.
+      wpa3_aps += hasRsn && rsn.wpa3;
+      transition_aps += hasRsn && rsn.transition;
+      resilience_findings += hasRsn && rsn.wpa3 && !rsn.pmfRequired;
       // only write the beacon packet the first time that we see it, to reduce writing on the SD-CARD.
       if (useSD) sdBuffer.addPacket(pkt->payload, packetLength);
 
       memcpy( &ssid_known[ssid_count].mac,  &ssid_known[MAX_SSIDs-1].mac ,6);
       memcpy( &ssid_known[ssid_count].ssid, pkt->payload+38, SSID_length);
       snprintf( last_ssid_mac, 18, "%s", ether_ntoa(ssid_known[ssid_count].mac) );
-      ssid_known[u].ssid_len = SSID_length;
+      ssid_known[ssid_count].ssid_len = SSID_length;
       ssid_count++;
       setLastSSID( 38, SSID_length, pkt->payload );
 
@@ -683,6 +735,12 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
         last_rssi
       );
     }
+  }
+
+  const SaeAuthentication sae = parseSaeAuthentication(pkt->payload, packetLength);
+  if (sae.sequence) {
+    if (sae.sequence == 1) ++sae_commits; else ++sae_confirms;
+    if (sae.group && sae.group < 19) ++sae_legacy_groups;
   }
 
   //#define SUBTYPE_PROBE_REQUEST 0x04
@@ -732,6 +790,18 @@ static void drawMetric(const char* label, uint32_t value, int y)
   stats.drawString(number, Dashboard::stats.w, y);
 }
 
+static void drawMetricPair(const char* label, uint32_t first, uint32_t second, int y)
+{
+  char a[6], b[6], value[12];
+  Dashboard::count(first, a);
+  Dashboard::count(second, b);
+  snprintf(value, sizeof(value), "%s/%s", a, b);
+  stats.setTextDatum(TL_DATUM);
+  stats.drawString(label, 0, y);
+  stats.setTextDatum(TR_DATUM);
+  stats.drawString(value, Dashboard::stats.w, y);
+}
+
 static void sampleSignal()
 {
   const uint32_t packets = tmpPacketCounter;
@@ -773,15 +843,15 @@ void draw()
   header.pushSprite(Dashboard::header.x, Dashboard::header.y);
 
   stats.fillSprite(TFT_BLACK);
-  drawMetric("AP", ssid_count, 0);
-  drawMetric("PKT/s", ledPacketCounter, 18);
+  drawMetric("HANDSHAKE", complete_handshakes, 0);
+  drawMetric("PMKID", pmkids_observed, 18);
   stats.drawFastHLine(0, 36, Dashboard::stats.w, TFT_WHITE);
-  drawMetric("EAPOL", total_eapol, 42);
-  drawMetric("DEAUTH", total_deauths, 60);
-  drawMetric("EAPOL AP", ssid_eapol_count, 78);
-  stats.drawFastHLine(0, 98, Dashboard::stats.w, TFT_WHITE);
+  drawMetricPair("AP/PKT", ssid_count, ledPacketCounter, 42);
+  drawMetric("EAPOL", total_eapol, 60);
+  drawMetric("WPA3", wpa3_aps, 78);
+  drawMetric("TRANS", transition_aps, 96);
   stats.setTextDatum(TL_DATUM);
-  stats.drawString(ssid_eapol_count ? "CAPTURA ATIVA" : "MONITOR PASSIVO", 0, 106);
+  stats.drawString(ssid_eapol_count ? "CAPTURA PASSIVA" : "MONITOR PASSIVO", 0, 112);
   stats.pushSprite(Dashboard::stats.x, Dashboard::stats.y);
 
   drawFoxMascot(tft, Dashboard::fox.x, Dashboard::fox.y, total_deauths != 0 && (millis() / 1000) % 2 == 0, ledPacketCounter < 10, millis());
