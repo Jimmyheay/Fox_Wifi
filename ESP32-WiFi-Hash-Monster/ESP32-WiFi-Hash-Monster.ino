@@ -62,7 +62,8 @@
 
 #include <Preferences.h>
 #include "Buffer.h"
-#include "Faces.h"
+#include "DashboardLayout.h"
+#include "FoxMascot.h"
 #include "FS.h"
 #include "SD.h"
 
@@ -83,7 +84,6 @@
 
 #define DRAW_DELAY 1000 // redraw graphs every second
 #define BUTTON_DEBOUNCE 150 // check button every n millis
-#define PKTS_BUF_SIZE 320 // buffer size for "packets/s" graph
 #define MAX_SSIDs 1792 // buffer cache size (*32bits) for Beacon information, reduce this in case of memory problems
 
 #if CONFIG_FREERTOS_UNICORE
@@ -114,27 +114,24 @@ int smartCh_old_stuff = 0;
 uint8_t autoChMode = 0 ; // 0 No auto -  1 Switch channels automatically   - Smart Switch
 const char* authChmodeStr[3] = {"[C]hannel Fixed", "[A]utomatic switching", "[S]mart switching" };
 uint32_t tmpPacketCounter;
-uint32_t pkts[PKTS_BUF_SIZE+1]; // here the packets per second will be saved
 uint32_t deauths = 0; // deauth frames per second
 uint32_t total_deauths = 0; // deauth total frames
-uint32_t graph_deauths = 0; // deauth total frames
 
 uint32_t eapol = 0;         // eapol frames per second
 uint32_t total_eapol = 0;   // eapol total frames
-uint32_t graph_eapol = 0;   // eapol total frames
 
 unsigned int ch = 1;  // current 802.11 channel
-unsigned int old_ch = 20;  // old  802.11 channel
 unsigned int bright = 100;  // default
 unsigned int bright_leds = 100;  // default
 unsigned int led_status = 0;
 unsigned int ledPacketCounter = 0;
 
 int rssiSum;
-int graph_RSSI = 1;
-int delta = 1;
-int grid = 0;
-int tcount = 0;
+int graph_RSSI = 0;
+bool rssiValid = false;
+int previousRssiY = -1;
+unsigned int previousRssiChannel = 0;
+uint8_t graphGrid = 0;
 
 int8_t last_rssi;
 char   last_ssid[33] = { '[', 'n', 'o', 'n', 'e', ']', '\0' };
@@ -144,60 +141,8 @@ char   last_eapol_mac[18] = {0};
 
 TFT_eSprite header = TFT_eSprite(&tft); // 1bit   color sprite for header
 TFT_eSprite footer = TFT_eSprite(&tft); // 1bit   color sprite for footer
-TFT_eSprite face1  = TFT_eSprite(&tft); // 16bits color sprite for face
-TFT_eSprite graph1 = TFT_eSprite(&tft); // 1bit   color sprite for graph1
-TFT_eSprite graph2 = TFT_eSprite(&tft); // 8bits  color sprite for graph2
-TFT_eSprite units1 = TFT_eSprite(&tft); // 1bit   color sprite for units1
-TFT_eSprite units2 = TFT_eSprite(&tft); // 8bits  color sprite for units2
-
-// position for header sprite
-int headerPosX = 0;
-int headerPosY = 0;
-// dimensions for header sprite
-int headerWidth  = 320-headerPosX;
-int headerHeight = 20;
-
-// position for footer sprite
-int footerPosX = 20;
-int footerPosY = 202;
-// dimensions for footer sprite
-int footerWidth  = 320-footerPosX;
-int footerHeight = 240-footerPosY;
-
-// dimensions for monster sprite
-int face1Width  = 64;
-int face1Height = 64;
-// position for monster sprite
-int face1PosX = 5;
-int face1PosY = 140;
-
-// dimensions for units1 sprite
-int units1Width  = 40;
-int units1Height = 120;
-// position for units1 sprite
-int units1PosX = 0;
-int units1PosY = 20;
-
-// dimensions for graph1 sprite
-int graph1Width = 320-units1Width;
-int graph1Height = 100;
-// position for graph1 sprite
-int graph1PosX = units1Width;
-int graph1PosY = 28;
-
-// dimensions for units2 sprite
-int units2Width  = 36;
-int units2Height = face1Height;
-// position for units2 sprite
-int units2PosX = 320-units2Width;
-int units2PosY = graph1PosY+graph1Height+2;
-
-// position for graph2 sprite
-int graph2PosX = face1Width+face1PosX+5; // right side of monster sprite
-int graph2PosY = graph1PosY+graph1Height+6;
-// dimensions for graph2 sprite
-int graph2Width = 320-(graph2PosX+units2Width); // must fit between monster sprite and unit2 sprite
-int graph2Height = face1Height-4;
+TFT_eSprite stats = TFT_eSprite(&tft);       // compact black/white metrics panel
+TFT_eSprite signalGraph = TFT_eSprite(&tft); // the only graph: yellow RSSI history
 
 
 /*
@@ -386,178 +331,60 @@ void loop()
 }
 
 
-static void initSpritesTask( void* param )
+static bool initTextSprite(TFT_eSprite& sprite, const Dashboard::Rect& rect)
 {
-  // Create a 1bit sprite for the header
-  header.setColorDepth(1);
-  if(!header.createSprite( headerWidth, headerHeight ) ) {
-    log_e("Can't create header sprite");
-  }
-  header.setFont( &fonts::AsciiFont8x16 );
-  header.setTextSize( 1.0 );
-  header.setTextColor( TFT_BLACK, TFT_BLUE ); // unintuitive: use black/blue mask
-  header.setTextDatum(TL_DATUM);
-  header.setBitmapColor( TFT_BLUE, TFT_WHITE ); // mask will be converted to this color
-  header.fillSprite(TFT_BLUE);
+  sprite.setColorDepth(1);
+  if (!sprite.createSprite(rect.w, rect.h)) return false;
+  sprite.setFont(&fonts::AsciiFont8x16);
+  sprite.setTextSize(1);
+  sprite.setTextDatum(TL_DATUM);
+  sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+  sprite.setBitmapColor(TFT_WHITE, TFT_BLACK);
+  sprite.fillSprite(TFT_BLACK);
+  return true;
+}
 
-  // Create a 1bit sprite for the footer
-  footer.setColorDepth(1);
-  if(!footer.createSprite( footerWidth, footerHeight ) ) {
-    log_e("Can't create footer sprite");
-  }
-  footer.setFont( &fonts::AsciiFont8x16 );
-  footer.setTextSize( 1.0 );
-  footer.setTextColor( TFT_BLACK, TFT_BLUE ); // unintuitive: use black/blue mask
-  footer.setTextDatum(TL_DATUM);
-  footer.setBitmapColor( TFT_BLUE, TFT_WHITE ); // mask will be converted to this color
-  footer.fillSprite( TFT_BLUE );
-
-  // Create an 8bits sprite for the graph2
-  graph2.setColorDepth(8);
-  if(!graph2.createSprite(graph2Width+1, graph2Height+1) ) {
-    log_e("Can't create graph2 sprite");
-  }
-  graph2.setTextColor(TFT_WHITE,TFT_BLACK);
-  graph2.setFont( &fonts::Font2 );
-  graph2.setTextSize( 0.75 );
-  graph2.fillSprite(TFT_BLACK);
-
-  // create a 8bits sprite for units2
-  units2.setColorDepth(8);
-  if(!units2.createSprite( units2Width, units2Height ) ) {
-    log_e("Can't create units2 sprite");
-  }
-  units2.setTextDatum( TR_DATUM );
-  units2.setFont( &fonts::Font2 );
-  units2.fillSprite(TFT_BLACK);
-
-  // Create a 1bit sprite for the graph1
-  graph1.setColorDepth(1);
-  if(!graph1.createSprite( graph1Width, graph1Height ) ) {
-    log_e("Can't create graph1 sprite");
-  }
-  graph1.setFont(&fonts::Font2);
-  //graph1.setTextSize( 0.75 );
-  graph1.setBitmapColor( TFT_GREEN, TFT_BLACK );
-  graph1.setTextColor( TFT_WHITE, TFT_BLACK );
-  graph1.setTextDatum( TR_DATUM );
-  graph1.fillSprite(TFT_BLACK);
-
-  // create a 1bit sprite for units1
-  units1.setColorDepth(1);
-  if(!units1.createSprite( units1Width, units1Height ) ) {
-    log_e("Can't create units1 sprite");
-  }
-  units1.setFont(&fonts::FreeMono9pt7b);
-  units1.setTextColor( TFT_WHITE, TFT_BLACK );
-  units1.setBitmapColor( TFT_WHITE, TFT_BLACK);  // Pkts Scale
-  units1.setTextDatum(MR_DATUM);
-  units1.setTextSize( 0.75 );
-  units1.fillSprite(TFT_BLACK);
-
-  // Create a 16bits sprite for the monster
-  face1.setColorDepth(16);
-  if(!face1.createSprite( face1Width, face1Height ) ) {
-    log_e("Can't create face sprite");
-  }
-  face1.fillSprite(TFT_BLACK); // Note: Sprite is filled with black when created
-  face1.setSwapBytes(true); // apply endianness since images are stored in 16bits words
+static void initSpritesTask(void* param)
+{
+  const bool headerOk = initTextSprite(header, Dashboard::header);
+  const bool footerOk = initTextSprite(footer, Dashboard::footer);
+  const bool statsOk = initTextSprite(stats, Dashboard::stats);
+  signalGraph.setColorDepth(8);
+  const bool graphOk = signalGraph.createSprite(Dashboard::graph.w, Dashboard::graph.h) != nullptr;
+  if (graphOk) signalGraph.fillSprite(TFT_BLACK);
+  if (!headerOk || !footerOk || !statsOk || !graphOk) log_e("Dashboard sprite allocation failed");
   UIReady = true;
-  log_w("Leaving initSprites task !");
   vTaskDelete(NULL);
 }
 
-
-
-static void bootAnimationTask( void* param )
+static void bootAnimationTask(void* param)
 {
-  int waitmillis = 2000; // max animation duration
-  float xpos = 200;      // initial monster x position
-  float ypos = 158;      // initial monster y position
-  float xdir = 1;        // bounce horizontal direction
-  float vcursor = 0.0;   // cursor for sine
-  float vstep = 0.009;   // vspeed
-  float hstep = 0.35;    // hspeed
-  float vamplitude = 56; // bounce height
-  float voffset = 176;   // vertical offset
-  int imgId = 12;        // image ID
-
   tft.clear();
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(0);
-
   tft.setFont(&fonts::FreeMono12pt7b);
-  tft.drawString( "Purple Hash Monster", 6, 24);
-  tft.drawString( "by @g4lile0", 26, 44);
-  tft.drawString( "90% PacketMonitor32", 6, 74);
-  tft.drawString( "by @Spacehuhn", 26, 94);
-  tft.setSwapBytes(true);
-
-  ypos = voffset - ( abs( cos(vcursor) )*vamplitude );
-  tft.pushImage(xpos, ypos, 64, 64, monsterSet[imgId]);
-
-  // animate the monster while the sprites are being inited
-  while( waitmillis-- > 0 || ( waitmillis < 0 && !UIReady) ) {
-    ypos = voffset - ( abs( cos(vcursor) )*vamplitude );
-    tft.pushImage(xpos, ypos, 64, 64, monsterSet[imgId]);
-    if(  (xdir == 1  && xpos+xdir >= tft.width()-64)
-      || (xdir == -1 && xpos+xdir < 0 ) ) {
-      xdir = -xdir;
-      imgId = random()%13;
-    }
-    xpos += xdir*hstep;
-    vcursor += vstep;
-    vTaskDelay(1);
-  }
-
-  tft.fillRect( 0, 0, 320, 120, TFT_BLACK );
-
-  tft.drawString( "Checking SD...", 6, 74);
-
-  if( !sdBuffer.init() ) { // allocate buffer memory
-    // TODO: print error on display
+  tft.drawString("WiFi Fox", 8, 28);
+  tft.setFont(&fonts::Font2);
+  tft.drawString("Passive packet monitor", 8, 56);
+  drawFoxMascot(tft, 176, 86, false, false, millis());
+  while (!UIReady) vTaskDelay(1);
+  vTaskDelay(pdMS_TO_TICKS(700));
+  tft.clear();
+  tft.drawString("Checking SD...", 8, 74);
+  if (!sdBuffer.init()) {
     Serial.println("Error, not enough memory for buffer");
-    while(1) vTaskDelay(1);
+    while (1) vTaskDelay(1);
   }
-
-  if ( setupSD() ) {
+  if (setupSD()) {
     sdBuffer.checkFS(&SD);
-    sdBuffer.pruneZeroFiles(&SD); // SD cleanup: remove zero-length pcap files from previous scans
-
-    if( sdBuffer.open(&SD) ) {
-      Serial.println("SD CHECK OPEN");
-    } else {
-      Serial.println("SD ERROR, Can't create file");
-      useSD = false;
-    }
-  } else {
-    // SD setup failed, card not inserted ?
-    Serial.println("SD Setup failed");
-  }
-
-  tft.drawString( "Setting up WiFi...", 6, 44);
-
+    sdBuffer.pruneZeroFiles(&SD);
+    if (!sdBuffer.open(&SD)) { Serial.println("SD ERROR, Can't create file"); useSD = false; }
+  } else Serial.println("SD Setup failed");
+  tft.drawString("Setting up WiFi...", 8, 44);
   setupWiFiPromisc();
-
   WelComeTaskReady = true;
-  log_d("Leaving welcome task !");
-  vTaskDelete( NULL );
+  vTaskDelete(NULL);
 }
 
-
-
-// ===== functions ===================================================
-double getMultiplicator( uint32_t range )
-{
-  uint32_t maxVal = 1;
-  for (int i = 40; i < PKTS_BUF_SIZE; i++) {
-    if (pkts[i] > maxVal) maxVal = pkts[i];
-  }
-  if (maxVal > 0) {
-    return (double)range / (double)maxVal;
-  }
-  return 1;
-}
 
 
 // ===== functions ===================================================
@@ -895,209 +722,85 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
 
 // ===== UI functions ===================================================
 
-
-void drawHeaderVal( TFT_eSprite *sprite, int32_t posx, int32_t posy, String title, String value )
+static void drawMetric(const char* label, uint32_t value, int y)
 {
-  header.setTextColor( TFT_BLUE ); // invert
-  uint8_t rectW = (title.length()*8)+4;
-  header.fillRect( posx, posy, rectW, 14, TFT_BLACK );
-  header.drawString(title, posx+2, posy);
-  header.setTextColor( TFT_BLACK, TFT_BLUE ); // restore
-  header.drawString(value, posx+rectW, posy);
+  char number[6];
+  Dashboard::count(value, number);
+  stats.setTextDatum(TL_DATUM);
+  stats.drawString(label, 0, y);
+  stats.setTextDatum(TR_DATUM);
+  stats.drawString(number, Dashboard::stats.w, y);
 }
 
+static void sampleSignal()
+{
+  const uint32_t packets = tmpPacketCounter;
+  rssiValid = packets != 0;
+  graph_RSSI = rssiValid ? rssiSum / int(packets) : 0;
+  total_eapol += eapol;
+  total_deauths += deauths;
+  ledPacketCounter = packets;
+  tmpPacketCounter = 0;
+  rssiSum = 0;
+  eapol = 0;
+  deauths = 0;
+
+  signalGraph.scroll(-1, 0);
+  const int right = Dashboard::graph.w - 1;
+  signalGraph.drawFastVLine(right, 0, Dashboard::graph.h, TFT_BLACK);
+  graphGrid = (graphGrid + 1) % 10;
+  if (!graphGrid) signalGraph.drawFastVLine(right, 0, Dashboard::graph.h, Dashboard::grid);
+  else for (int y = 0; y < Dashboard::graph.h; y += 10) signalGraph.drawPixel(right, y, Dashboard::grid);
+  if (rssiValid) {
+    const int nextY = Dashboard::rssiY(graph_RSSI);
+    if (previousRssiY >= 0 && previousRssiChannel == ch) signalGraph.drawLine(right - 1, previousRssiY, right, nextY, TFT_YELLOW);
+    else signalGraph.drawPixel(right, nextY, TFT_YELLOW);
+    previousRssiY = nextY;
+  } else previousRssiY = -1;
+  previousRssiChannel = ch;
+}
 
 void draw()
 {
-  int len, rssi;
-  if (pkts[PKTS_BUF_SIZE - 1] > 0)
-    rssi = rssiSum / (int)pkts[PKTS_BUF_SIZE - 1];
-  else
-    rssi = rssiSum;
+  if (!bright) return;
+  char line[42];
+  const char mode = autoChMode == 1 ? 'A' : (autoChMode == 2 ? 'S' : 'C');
 
-  graph_RSSI= rssi;
-  draw_RSSI();
-  total_eapol += eapol;
-  graph_eapol += eapol;
-  total_deauths += deauths;
-  graph_deauths += deauths;
+  header.fillSprite(TFT_BLACK);
+  snprintf(line, sizeof(line), "WiFi FOX  CH %02u %c  SD %s", ch, mode, useSD && SDSetupDone ? "ON" : "OFF");
+  header.drawString(line, 8, 4);
+  header.drawFastHLine(8, Dashboard::header.h - 1, 304, Dashboard::orange);
+  header.pushSprite(Dashboard::header.x, Dashboard::header.y);
 
-  char modeStr[2] = {0,0};
+  stats.fillSprite(TFT_BLACK);
+  drawMetric("AP", ssid_count, 0);
+  drawMetric("PKT/s", ledPacketCounter, 18);
+  stats.drawFastHLine(0, 36, Dashboard::stats.w, TFT_WHITE);
+  drawMetric("EAPOL", total_eapol, 42);
+  drawMetric("DEAUTH", total_deauths, 60);
+  drawMetric("EAPOL AP", ssid_eapol_count, 78);
+  stats.drawFastHLine(0, 98, Dashboard::stats.w, TFT_WHITE);
+  stats.setTextDatum(TL_DATUM);
+  stats.drawString(ssid_eapol_count ? "CAPTURA ATIVA" : "MONITOR PASSIVO", 0, 106);
+  stats.pushSprite(Dashboard::stats.x, Dashboard::stats.y);
 
-  switch( autoChMode ) {
-    case 0: modeStr[0] = 'C'; break;
-    case 1: modeStr[0] = 'A'; break;
-    case 2: modeStr[0] = 'S'; break;
-  }
+  drawFoxMascot(tft, Dashboard::fox.x, Dashboard::fox.y, total_deauths != 0 && (millis() / 1000) % 2 == 0, ledPacketCounter < 10, millis());
 
-  header.fillSprite( TFT_BLUE );
+  tft.setFont(&fonts::AsciiFont8x16);
+  tft.setTextDatum(TL_DATUM);
+  tft.fillRect(Dashboard::signal.x, Dashboard::signal.y, Dashboard::signal.w, Dashboard::signal.h, TFT_BLACK);
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  if (rssiValid) snprintf(line, sizeof(line), "RSSI %4d dBm     SINAL / 1s", graph_RSSI);
+  else snprintf(line, sizeof(line), "RSSI   -- dBm     SEM TRAFEGO");
+  tft.drawString(line, Dashboard::signal.x, Dashboard::signal.y);
+  signalGraph.pushSprite(Dashboard::graph.x, Dashboard::graph.y);
 
-  drawHeaderVal( &header, 2,   4, modeStr,  "" );
-  drawHeaderVal( &header, 22,  4, "CH",     ":"+String(ch) );
-  drawHeaderVal( &header, 70,  4, "AP",     ":"+String(formatUnit(ssid_count)) );
-  drawHeaderVal( &header, 130, 4, "Pk",     ":"+String(formatUnit(tmpPacketCounter)) );
-  drawHeaderVal( &header, 192, 4, "E/D",    ":"+String(formatUnit(eapol))+"/"+String(formatUnit(deauths)) );
-  drawHeaderVal( &header, 268, 4, "SD",     ":"+String(useSD?"On":"Off") );
-
-  header.pushSprite( headerPosX, headerPosY );
-
-  double multiplicator = getMultiplicator( 100 );
-
-  double maxval = 100 / multiplicator;
-
-  int noceil = maxval;
-  int toceil = 10 - (noceil%10);
-  if( toceil !=10 ) {
-    maxval = noceil + toceil; // round it up
-    multiplicator = 100 / maxval;
-  }
-
-  double valstep = maxval / 5;
-
-  units1.fillSprite( TFT_BLACK );
-
-  for ( int ypos = units1Height-10, idx = 0; ypos > 0; ypos -= 20 )
-  {
-    units1.drawString(String( int( idx * valstep ) ), 30, ypos );
-    idx++;
-  }
-
-  units1.pushSprite( units1PosX, units1PosY );
-
-  for (int i = 40; i < PKTS_BUF_SIZE; i++) {
-    int xpos = i-40;
-    len = pkts[i] * multiplicator;
-    graph1.drawLine(xpos, graph1Height, xpos, 0, 0);                 // LINE ERASE
-    graph1.drawLine(xpos, graph1Height, xpos, graph1Height - len, 1);// LINE DRAW
-    // scroll pkts data buffer
-    if (i < PKTS_BUF_SIZE - 1) pkts[i] = pkts[i + 1];
-  }
-
-  #ifdef ARDUINO_M5STACK_Core2
-    // show onscreen clock since M5Core2 has a RTC module
-    struct timeval tv;
-    if (gettimeofday(&tv, NULL)!= 0) {
-      // Failed to obtain time
-    } else {
-      struct tm* ptm;
-      ptm = localtime (&tv.tv_sec);
-      char timeStr[15] = {0};
-      const char* timeTpl = " %02d : %02d : %02d";
-      snprintf( timeStr, 14, timeTpl, ptm->tm_hour, ptm->tm_min, ptm->tm_sec );
-      graph1.drawString( timeStr, graph1Width, 0 );
-    }
-  #endif
-
-  graph1.pushSprite( graph1PosX, graph1PosY );
-
-  byte aleatorio; // = random (1,10);
-
-  if ((deauths>0) && (eapol==0)) {
-    face1.pushImage(0, 0, face1Width, face1Height, angry_64);
-  }
-
-  if (tmpPacketCounter<10) {
-    aleatorio = random (1,5);
-    switch (aleatorio) {
-      case 1:  face1.pushImage(0, 0, face1Width, face1Height, bored1_64); break;
-      case 2:  face1.pushImage(0, 0, face1Width, face1Height, bored2_64); break;
-      case 3:  face1.pushImage(0, 0, face1Width, face1Height, bored3_64); break;
-      case 4:  face1.pushImage(0, 0, face1Width, face1Height, sleep1_64); break;
-      default: face1.pushImage(0, 0, face1Width, face1Height, sleep2_64); break;
-    }
-  }
-
-  if (tmpPacketCounter>500) {
-    aleatorio = random (1,2);
-    switch (aleatorio) {
-      case 1:  face1.pushImage(0, 0, face1Width, face1Height, scare_64);    break;
-      default: face1.pushImage(0, 0, face1Width, face1Height, surprise_64); break;
-    }
-  }
-
-  if ((eapol==0) && (deauths==0) && (tmpPacketCounter>10)) {
-    aleatorio = random (1,5);
-    switch (aleatorio) {
-      case 1:  face1.pushImage(0, 0, face1Width, face1Height, happy_64);  break;
-      case 2:  face1.pushImage(0, 0, face1Width, face1Height, happy2_64); break;
-      case 3:  face1.pushImage(0, 0, face1Width, face1Height, happy3_64); break;
-      default: face1.pushImage(0, 0, face1Width, face1Height, happy4_64); break;
-    }
-  }
-
-  if (eapol>0)   {
-    face1.pushImage(0, 0, face1Width, face1Height, love_64);
-  }
-
-  face1.pushSprite( face1PosX, face1PosY, TFT_BLACK);
-
-  draw_RSSI();
+  footer.fillSprite(TFT_BLACK);
+  snprintf(line, sizeof(line), "AP: %.32s", last_ssid[0] ? last_ssid : "[hidden]");
+  footer.drawString(line, 8, 2);
+  footer.pushSprite(Dashboard::footer.x, Dashboard::footer.y);
 }
 
-
-
-void draw_RSSI()
-{
-
-  footer.fillSprite( TFT_BLUE );
-
-  String p = String(last_ssid[0]!='\0' ? last_ssid : "[hidden]" )+" "+(String)last_rssi+" "+(String)last_ssid_mac;
-  footer.drawString(p, 2, 3);
-  p = String(last_eapol_ssid[0]!='\0'? last_eapol_ssid : "[none]")+" "+(String)last_eapol_mac;
-  footer.drawString(p, 2, 3+18);
-  footer.pushSprite( footerPosX, footerPosY );
-
-  // Draw point in graph2 sprite at far right edge (this will scroll left later)
-  if (graph_RSSI != 0)  graph2.drawFastVLine( graph2Width, -(graph_RSSI/2), 2, TFT_YELLOW); // draw 2 pixel point on graph
-
-  if (graph_eapol>59) graph_eapol=0;
-  if (graph_eapol != 0)  graph2.drawFastVLine( graph2Width, graph2Height-constrain(graph_eapol,1,graph2Height), 2, TFT_GREEN); // draw 2 pixel point on graph
-
-  if (graph_deauths>59) graph_deauths=0;
-  if (graph_deauths != 0)  graph2.drawFastVLine( graph2Width, graph2Height-constrain(graph_deauths,1,graph2Height), 2, TFT_RED); // draw 2 pixel point on graph
-
-  // write the channel on the scroll window.
-  if (ch != old_ch){
-    old_ch=ch;
-    graph2.drawString( "  ", graph2Width-25, 1 );
-    graph2.drawNumber( ch,   graph2Width-17, 1 );
-  }
-
-  // Push the sprites onto the TFT at specified coordinates
-  graph2.pushSprite( graph2PosX, graph2PosY );
-  // Now scroll the sprites scroll(dt, dy) where:
-  // dx is pixels to scroll, left = negative value, right = positive value
-  // dy is pixels to scroll, up = negative value, down = positive value
-  graph2.scroll(-1, 0); // scroll graph 1 pixel left, 0 up/down
-
-  // Draw the grid on far right edge of sprite as graph has now moved 1 pixel left
-  grid++;
-  if (grid >= 10) {
-    // Draw a vertical line if we have scrolled 10 times (10 pixels)
-    grid = 0;
-    graph2.drawFastVLine( graph2Width, 0, 61, TFT_NAVY ); // draw line on graph
-  } else { // Otherwise draw points spaced 10 pixels for the horizontal grid lines
-    for (int p = 0; p <= graph2Height; p += 10) graph2.drawPixel( graph2Width, p, TFT_NAVY );
-  }
-  tcount--;
-
-
-  units2.fillSprite( TFT_BLACK );
-
-  units2.setTextColor( TFT_YELLOW, TFT_BLACK );
-  units2.drawString( " " + String(formatUnit(graph_RSSI)),       units2Width-1, 2 );
-
-  units2.setTextColor( TFT_GREEN,  TFT_BLACK );
-  units2.drawString( " " + String(formatUnit(total_eapol)),      units2Width-1, 18 );
-
-  units2.setTextColor( TFT_RED,    TFT_BLACK );
-  units2.drawString( " " + String(formatUnit(total_deauths)),    units2Width-1, 34 );
-
-  units2.setTextColor( TFT_WHITE,  TFT_BLACK );
-  units2.drawString( " " + String(formatUnit(ssid_eapol_count)), units2Width-1, 50 );
-
-  units2.pushSprite( units2PosX, units2PosY );
-}
 
 
 
@@ -1113,10 +816,6 @@ void coreTask( void * p )
   tmpPacketCounter = 0; // reset to avoid overflow on first render
 
   tft.clear();
-  // draw icons
-  tft.fillRect( 0, footerPosY, 32, 40, TFT_BLUE );
-  tft.pushImage( 2, footerPosY+2,  16, 16, (uint16_t*)rssi_16x16_rgb565,  TFT_BLACK );
-  tft.pushImage( 2, footerPosY+20, 16, 16, (uint16_t*)eapol_16x16_rgb565, TFT_BLACK );
 
   lastButtonTime = millis();
   M5.update();
@@ -1211,15 +910,8 @@ void coreTask( void * p )
       // Serial.printf("\nFree RAM %u %u\n",
       // heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT),
       // heap_caps_get_minimum_free_size(MALLOC_CAP_32BIT));
-      // for debug purposes
-      pkts[PKTS_BUF_SIZE - 1] = tmpPacketCounter;
+      sampleSignal();
       draw();
-      eapol = 0 ;
-      deauths = 0;
-      //Serial.println((String)pkts[PKTS_BUF_SIZE - 1]);
-      ledPacketCounter = tmpPacketCounter;
-      tmpPacketCounter = 0;
-      rssiSum = 0;
     }
     // Serial input
     if (Serial.available()) {
