@@ -306,6 +306,12 @@ void setup()
   #endif
   M5.begin(); // this will fire Serial.begin()
 
+  #ifdef ARDUINO_M5STACK_Core2
+    // Core2 is normally held portrait by its touch UI. The dashboard is 320x240.
+    tft.setRotation(1);
+    tft.setBrightness(bright);
+  #endif
+
   #ifdef USE_M5STACK_UPDATER
     // New SD Updater support, requires the latest version of https://github.com/tobozo/M5Stack-SD-Updater/
     #if defined M5_SD_UPDATER_VERSION_INT
@@ -315,9 +321,28 @@ void setup()
     checkSDUpdater( SD, MENU_BIN, M5STACK_UPDATER_MENUDELAY, TFCARD_CS_PIN ); // Filesystem, Launcher bin path, Wait delay
   #endif
   // SD card ---------------------------------------------------------
+  tft.fillScreen(TFT_BLACK);
+  #ifdef ARDUINO_M5STACK_Core2
+  // The Core2 remains a live monitor without a card. Do not power it off merely
+  // because optional PCAP storage is unavailable at boot.
+  uint8_t core2SdAttempts = 20;
+  while (!M5.sd_begin() && --core2SdAttempts) {
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextSize(1);
+    tft.drawString("SD optional: monitoring without capture", tft.width()/2, tft.height()/2);
+    tft.setTextDatum(TL_DATUM);
+    delay(100);
+  }
+  if (!core2SdAttempts) {
+    useSD = false;
+    SDSetupDone = false;
+  } else {
+    SDSetupDone = true;
+  }
+  #else
   bool toggle = false;
   unsigned long lastcheck = millis();
-  tft.fillScreen(TFT_BLACK);
   while( !M5.sd_begin() ) {
     toggle = !toggle;
     tft.setTextColor( toggle ? TFT_BLACK : TFT_WHITE );
@@ -341,6 +366,7 @@ void setup()
   }
 
   SDSetupDone = true;
+  #endif
   preferences.begin("packetmonitor32", false);
   ch         = preferences.getUInt("channel",    1);
   autoChMode = preferences.getUInt("autoChMode", 0);

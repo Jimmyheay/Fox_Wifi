@@ -53,7 +53,21 @@ g++ -std=c++11 -Wall -Wextra -Werror -IESP32-WiFi-Hash-Monster \
   -o /tmp/security_analyzer_test && /tmp/security_analyzer_test
 ```
 
-Use Arduino IDE to compile it, tested with (ESP32 version 1.0.4) M5stack-fire.
+## M5Stack Core2
+
+`m5stack-core2` is the default PlatformIO environment. The dashboard forces the
+Core2 display into 320×240 landscape, uses Chimera-Core's Core2 display and
+button API, and keeps passive monitoring active when no microSD card is present.
+Without a card, capture storage is disabled until the SD control is enabled;
+screen metrics and channel controls remain available.
+
+Build it with:
+
+```sh
+pio run -e m5stack-core2
+```
+
+The M5Stack Fire environment remains available as `m5stack-fire`.
 
 
 
