@@ -63,7 +63,8 @@
 #include <Preferences.h>
 #include "Buffer.h"
 #include "DashboardLayout.h"
-#include "FoxMascot.h"
+#include "FoxAnimation.h"
+#include "FoxDisplay.h"
 #include "SecurityAnalyzer.h"
 #include "FS.h"
 #include "SD.h"
@@ -129,6 +130,9 @@ volatile uint32_t sae_legacy_groups = 0;
 uint32_t wpa3_aps = 0;
 uint32_t transition_aps = 0;
 uint32_t resilience_findings = 0;
+volatile uint32_t lastHandshakeEvent = 0;
+volatile uint32_t lastPmkidEvent = 0;
+volatile uint32_t lastDeauthEvent = 0;
 
 unsigned int ch = 1;  // current 802.11 channel
 unsigned int bright = 100;  // default
@@ -242,7 +246,7 @@ static void trackHandshake(const uint8_t* frame, uint32_t length, uint8_t messag
   }
   state->messages |= uint8_t(1u << (message - 1));
   state->lastSeen = now;
-  if (state->messages == 0x0f) { ++complete_handshakes; state->messages = 0; }
+  if (state->messages == 0x0f) { ++complete_handshakes; lastHandshakeEvent = now; state->messages = 0; }
 }
 
 
@@ -401,7 +405,8 @@ static void bootAnimationTask(void* param)
   tft.drawString("WiFi Fox", 8, 28);
   tft.setFont(&fonts::Font2);
   tft.drawString("Passive packet monitor", 8, 56);
-  drawFoxMascot(tft, 176, 86, false, false, millis());
+  tft.setSwapBytes(true);
+  renderLargeFox(tft, foxFrameFor(millis(), 1, 0, 0, 0), 176, 86);
   while (!UIReady) vTaskDelay(1);
   vTaskDelay(pdMS_TO_TICKS(700));
   tft.clear();
@@ -598,6 +603,7 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
 
   if (type == WIFI_PKT_MGMT &&  (pkt->payload[0] == 0xA0 || pkt->payload[0] == 0xC0 )) {
     deauths++;
+    lastDeauthEvent = millis();
     //      if (useSD) sdBuffer.addPacket(pkt->payload, packetLength);
     // deauth
     #ifdef ARDUINO_M5STACK_FIRE
@@ -613,6 +619,7 @@ void wifi_promiscuous(void* buf, wifi_promiscuous_pkt_type_t type)
     eapol++;  // new eapol packets :)
     ++eapol_messages[keyFrame.message - 1];
     pmkids_observed += keyFrame.pmkidCount;
+    if (keyFrame.pmkidCount) lastPmkidEvent = millis();
     trackHandshake(pkt->payload, packetLength, keyFrame.message);
 
     #ifdef ARDUINO_M5STACK_FIRE
@@ -854,7 +861,13 @@ void draw()
   stats.drawString(ssid_eapol_count ? "CAPTURA PASSIVA" : "MONITOR PASSIVO", 0, 112);
   stats.pushSprite(Dashboard::stats.x, Dashboard::stats.y);
 
-  drawFoxMascot(tft, Dashboard::fox.x, Dashboard::fox.y, total_deauths != 0 && (millis() / 1000) % 2 == 0, ledPacketCounter < 10, millis());
+  const uint32_t foxNow = millis();
+  tft.setSwapBytes(true);
+  renderLargeFox(tft, foxFrameFor(foxNow, ledPacketCounter,
+                                  lastHandshakeEvent && uint32_t(foxNow - lastHandshakeEvent) < 3500,
+                                  lastPmkidEvent && uint32_t(foxNow - lastPmkidEvent) < 3000,
+                                  lastDeauthEvent && uint32_t(foxNow - lastDeauthEvent) < 2500),
+                 Dashboard::fox.x, Dashboard::fox.y);
 
   tft.setFont(&fonts::AsciiFont8x16);
   tft.setTextDatum(TL_DATUM);

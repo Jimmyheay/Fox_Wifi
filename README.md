@@ -6,12 +6,12 @@
     <a href="https://twitter.com/intent/follow?screen_name=g4lile0"><img src="https://img.shields.io/twitter/follow/g4lile0?style=social&logo=twitter" alt="follow on Twitter"></a>
 </p>
 
-WiFi Hash Purple Monster, store EAPOL &amp; PMKID packets in an SD CARD using a M5STACK / ESP32 device.
+WiFi Fox passively records 802.11 packets to an SD card on M5Stack / ESP32 hardware.
 
 90% of the code is based on the great [PacketMonitor32](https://github.com/spacehuhn/PacketMonitor32/) from   &nbsp; <a href="https://twitter.com/intent/follow?screen_name=spacehuhn"><img src="https://img.shields.io/twitter/follow/spacehuhn?style=social&logo=twitter" alt="follow on Twitter"></a> and the port to [M5Stack](https://m5stack.com/) from [macsbug](https://macsbug.wordpress.com/2018/01/11/packetmonitor32-with-m5stack/). It was a challenge to see if I could mimic the operation of [pwnagotchi](https://github.com/evilsocket/pwnagotchi)
 <a href="https://twitter.com/intent/follow?screen_name=pwnagotchi"><img src="https://img.shields.io/twitter/follow/pwnagotchi?style=social&logo=twitter" alt="follow on Twitter"></a> in an ESP32 SoC.
 
-![ui](./images/m5stack_ESP32_hash_monster.jpg)
+![WiFi Fox sprite sheet](./assets/fox/fox-sheet.png)
 
 When a wifi device connect to an AP with WPA2/PSK instead of sharing the wifi key they exchange 4 EAPOL messages, this method is known as the 4-way handshake, capturing these 4 packets is possible to guess the password using dictonary attacks or brute force attack, recentely there is a more efficent way to calculate the wifi key using just one PMKID packet.
 
@@ -27,9 +27,10 @@ Short press on the third button will change WiFi Channel, long press will enable
 
 **Smart-Channel**  cover all the channels sequentially, but only hop if there is not new SSID, EAPOL or DEAUTHS after 15 seconds. 
 
-When a deauth packet is detected left LED bar will became red and for every EAPOL / PMKID detected right LED bar will became green, also de Purple Hash Monster behaviour will change depending on the WiFi trafic and packets detected. 
-
-![ui](./Purple_Hash_Monster_Sprites/64/happy3_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/happy_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/happy4_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/happy2_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/love_64.png)  ![ui](./Purple_Hash_Monster_Sprites/64/surprise_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/angry_64.png)  ![ui](./Purple_Hash_Monster_Sprites/64/bored1_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/bored2_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/bored3_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/sleep1_64.png) ![ui](./Purple_Hash_Monster_Sprites/64/scare_64.png)
+The display uses the compact fox atlas above. Sixteen 64×64 poses are packed at
+4 bits per pixel in firmware flash and streamed at 2× scale without allocating a
+128×128 framebuffer. The editable source sheet remains in `assets/fox`; run
+`node tools/build_fox_assets.js` after changing it.
 
 
 ## WiFi Fox dashboard
