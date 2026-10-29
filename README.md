@@ -1,9 +1,8 @@
-# ESP32 WiFi Hash Monster
+# Fox WiFi
 
 <p align="center">
-    <a href="https://github.com/G4lile0/ESP32-WiFi-Hash-Monster/blob/master/README.md"><img alt="Software License" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
-    <a href="https://github.com/G4lile0/ESP32-WiFi-Hash-Monster/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/G4lile0/ESP32-WiFi-Hash-Monster"/></a>
-    <a href="https://twitter.com/intent/follow?screen_name=g4lile0"><img src="https://img.shields.io/twitter/follow/g4lile0?style=social&logo=twitter" alt="follow on Twitter"></a>
+    <a href="https://github.com/Jimmyheay/sandbox01/blob/main/LICENSE"><img alt="Software License" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+    <a href="https://github.com/Jimmyheay/sandbox01/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/Jimmyheay/sandbox01"/></a>
 </p>
 
 WiFi Fox passively records 802.11 packets to an SD card on M5Stack / ESP32 hardware.
@@ -11,11 +10,11 @@ WiFi Fox passively records 802.11 packets to an SD card on M5Stack / ESP32 hardw
 90% of the code is based on the great [PacketMonitor32](https://github.com/spacehuhn/PacketMonitor32/) from   &nbsp; <a href="https://twitter.com/intent/follow?screen_name=spacehuhn"><img src="https://img.shields.io/twitter/follow/spacehuhn?style=social&logo=twitter" alt="follow on Twitter"></a> and the port to [M5Stack](https://m5stack.com/) from [macsbug](https://macsbug.wordpress.com/2018/01/11/packetmonitor32-with-m5stack/). It was a challenge to see if I could mimic the operation of [pwnagotchi](https://github.com/evilsocket/pwnagotchi)
 <a href="https://twitter.com/intent/follow?screen_name=pwnagotchi"><img src="https://img.shields.io/twitter/follow/pwnagotchi?style=social&logo=twitter" alt="follow on Twitter"></a> in an ESP32 SoC.
 
-![WiFi Fox sprite sheet](./assets/fox/fox-sheet.png)
+![Fox WiFi Edition interface](./assets/readme/fox-wifi-edition.png)
 
 When a wifi device connect to an AP with WPA2/PSK instead of sharing the wifi key they exchange 4 EAPOL messages, this method is known as the 4-way handshake, capturing these 4 packets is possible to guess the password using dictonary attacks or brute force attack, recentely there is a more efficent way to calculate the wifi key using just one PMKID packet.
 
-Purple Hash Monster capture all the EAPOL / PMKID packets on the SD Card for further analysis.
+Fox WiFi captures EAPOL and PMKID observations to the SD card for later analysis.
 
 Short press on first button will change enable incognito mode (Display and leds off) long press will enable the SD Card and all EAPOL / PMKID will be stored on the SD-Card.
 
@@ -78,7 +77,7 @@ ESP32-Chimera-Core 1.5.2 and M5Stack-SD-Updater 1.2.8 in `platformio.ini`.
 
 **Note:** Cracking an WiFi password using brute force attack for a long WiFi password without GPUs or Cloud help, will be a nightmare but if the password is short or you know the key pattern it will be "easily" cracked. 
 
-Here you have a small guide for linux (Ubuntu) to crack the WiFi password using the files stored on the SD_Card of the Purple Hash Monster using your computer.
+Here is a Linux (Ubuntu) guide for reviewing capture files stored on the Fox WiFi SD card with your computer.
 
 First we need to install **hashcat**
 
