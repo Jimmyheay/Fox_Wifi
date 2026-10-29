@@ -1,30 +1,29 @@
 # Fox WiFi
 
 <p align="center">
-    <a href="https://github.com/Jimmyheay/sandbox01/blob/main/LICENSE"><img alt="Software License" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
-    <a href="https://github.com/Jimmyheay/sandbox01/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/Jimmyheay/sandbox01"/></a>
+    <a href="https://github.com/Jimmyheay/Fox_Wifi/blob/main/LICENSE"><img alt="Software License" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+    <a href="https://github.com/Jimmyheay/Fox_Wifi/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/Jimmyheay/Fox_Wifi"/></a>
 </p>
 
-WiFi Fox passively records 802.11 packets to an SD card on M5Stack / ESP32 hardware.
+Fox WiFi passively records 802.11 packets to a microSD card on M5Stack and ESP32 hardware.
 
-90% of the code is based on the great [PacketMonitor32](https://github.com/spacehuhn/PacketMonitor32/) from   &nbsp; <a href="https://twitter.com/intent/follow?screen_name=spacehuhn"><img src="https://img.shields.io/twitter/follow/spacehuhn?style=social&logo=twitter" alt="follow on Twitter"></a> and the port to [M5Stack](https://m5stack.com/) from [macsbug](https://macsbug.wordpress.com/2018/01/11/packetmonitor32-with-m5stack/). It was a challenge to see if I could mimic the operation of [pwnagotchi](https://github.com/evilsocket/pwnagotchi)
-<a href="https://twitter.com/intent/follow?screen_name=pwnagotchi"><img src="https://img.shields.io/twitter/follow/pwnagotchi?style=social&logo=twitter" alt="follow on Twitter"></a> in an ESP32 SoC.
+Most of the code is based on the excellent [PacketMonitor32](https://github.com/spacehuhn/PacketMonitor32/) by &nbsp; <a href="https://twitter.com/intent/follow?screen_name=spacehuhn"><img src="https://img.shields.io/twitter/follow/spacehuhn?style=social&logo=twitter" alt="Follow on Twitter"></a>, together with the [M5Stack](https://m5stack.com/) port by [macsbug](https://macsbug.wordpress.com/2018/01/11/packetmonitor32-with-m5stack/). The project explores how a compact ESP32 device can present network-monitoring information inspired by [Pwnagotchi](https://github.com/evilsocket/pwnagotchi) <a href="https://twitter.com/intent/follow?screen_name=pwnagotchi"><img src="https://img.shields.io/twitter/follow/pwnagotchi?style=social&logo=twitter" alt="Follow on Twitter"></a>.
 
 ![Fox WiFi Edition interface](./assets/readme/fox-wifi-edition.png)
 
-When a wifi device connect to an AP with WPA2/PSK instead of sharing the wifi key they exchange 4 EAPOL messages, this method is known as the 4-way handshake, capturing these 4 packets is possible to guess the password using dictonary attacks or brute force attack, recentely there is a more efficent way to calculate the wifi key using just one PMKID packet.
+When a Wi-Fi client connects to a WPA2-PSK access point, the devices exchange four EAPOL messages as part of the four-way handshake. Fox WiFi records observed EAPOL and PMKID-related traffic for authorized, offline analysis.
 
-Fox WiFi captures EAPOL and PMKID observations to the SD card for later analysis.
+Fox WiFi captures EAPOL and PMKID observations to the microSD card for later analysis.
 
-Short press on first button will change enable incognito mode (Display and leds off) long press will enable the SD Card and all EAPOL / PMKID will be stored on the SD-Card.
+Short-press the first button to enable Incognito mode, which turns off the display and LEDs. Long-press it to enable or disable microSD storage for captured EAPOL and PMKID traffic.
 
-Short press on the second button will change the display backlight brighness, long press will change the LED bars brightness.
+Short-press the second button to change the display backlight brightness. Long-press it to change the LED bar brightness.
 
-Short press on the third button will change WiFi Channel, long press will enable **Auto-Channel** or **Smart-Channel** modes. 
+Short-press the third button to change the Wi-Fi channel. Long-press it to select **Auto-Channel** or **Smart-Channel** mode.
 
-**Auto-Channel**  hop between channels 1,6 and after 15 seconds. 
+**Auto-Channel** cycles through channels 1 through 13 every 15 seconds.
 
-**Smart-Channel**  cover all the channels sequentially, but only hop if there is not new SSID, EAPOL or DEAUTHS after 15 seconds. 
+**Smart-Channel** scans all channels in sequence, changing channels only when no new SSID, EAPOL, or deauthentication frame is observed for 15 seconds.
 
 The display uses the compact fox atlas above. Sixteen 64×64 poses are packed at
 4 bits per pixel in firmware flash and streamed at 2× scale without allocating a
@@ -73,24 +72,24 @@ ESP32-Chimera-Core 1.5.2 and M5Stack-SD-Updater 1.2.8 in `platformio.ini`.
 
 
 
-# Utilização das capturas
+# Capture workflow
 
-Use estes comandos apenas em redes e arquivos para os quais você possui autorização.
+Use these commands only with networks and capture files that you are authorized to assess.
 
-## Converter PCAP
+## Convert PCAP
 
 ```sh
 tshark -r 0006.pcap -w 0006_novo.pcapng -F pcapng
 sudo hcxpcapngtool -o hash_total2.txt 0006_novo.pcapng
 ```
 
-## Verificar EAPOL
+## Inspect EAPOL
 
 ```sh
 tshark -r 0006.pcap -Y "eapol"
 ```
 
-## Conversão para Hashcat
+## Convert for Hashcat
 
 ```sh
 hcxpcapngtool -o hash_total.txt arquivo_captura.pcapng
@@ -102,7 +101,7 @@ hcxpcapngtool -o hash_total.txt arquivo_captura.pcapng
 hashcat -m 22000 -a 0 hash_total.txt /usr/share/wordlists/rockyou.txt
 ```
 
-## Hashcat — 8 dígitos
+## Hashcat — 8 digits
 
 ```sh
 hashcat -m 22000 -a 3 01-hash/hash_total.txt "?d?d?d?d?d?d?d?d"
