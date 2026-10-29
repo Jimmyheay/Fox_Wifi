@@ -69,6 +69,9 @@ pio run -e m5stack-core2
 
 The M5Stack Fire environment remains available as `m5stack-fire`.
 
+The project pins current compatible releases of LovyanGFX 1.2.35,
+ESP32-Chimera-Core 1.5.2 and M5Stack-SD-Updater 1.2.8 in `platformio.ini`.
+
 
 
 # How guess the WiFi password using brute force attack

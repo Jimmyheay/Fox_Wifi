@@ -37,7 +37,7 @@
   #else
     #define M5STACK_UPDATER_MENUDELAY 0 // M5Stack Classic/Fire don't need to see the menu
   #endif
-  #define SDU_APP_NAME "WiFi Hash Monster" // title for SD-Updater UI
+  #define SDU_APP_NAME "WiFi Fox" // title for SD-Updater UI
   #include <M5StackUpdater.h> // https://github.com/tobozo/M5Stack-SD-Updater/
 #endif
 
@@ -315,6 +315,12 @@ void setup()
   #ifdef USE_M5STACK_UPDATER
     // New SD Updater support, requires the latest version of https://github.com/tobozo/M5Stack-SD-Updater/
     #if defined M5_SD_UPDATER_VERSION_INT
+      // SD-Updater 1.2.x uses an explicit configuration object. Supplying the
+      // filesystem and card-select pin keeps the updater portable across the
+      // Core2 and older M5Stack boards.
+      SDUCfg.setAppName(SDU_APP_NAME);
+      SDUCfg.setFS(&SD);
+      SDUCfg.setCSPin(TFCARD_CS_PIN);
       SDUCfg.setLabelMenu("<< Menu");
       SDUCfg.setLabelSkip("Launch");
     #endif
