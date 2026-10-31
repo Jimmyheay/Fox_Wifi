@@ -1,64 +1,35 @@
 #ifndef Buffer_h
 #define Buffer_h
-
-#include "Arduino.h"
-#include "FS.h"
-//#include "SD_MMC.h"
-
-#if defined ARDUINO_M5Stack_Core_ESP32
-  #define BUF_BLOCKS 4
-  #define EWH_MALLOC malloc
-#else
-  #define BUF_BLOCKS 24
-  #if defined BOARD_HAS_PSRAM
-    #define EWH_MALLOC ps_malloc
-  #else
-    #define EWH_MALLOC malloc
-  #endif
-#endif
-
-#define BUF_SIZE BUF_BLOCKS * 1024
-#define SNAP_LEN 2324 // max len of each recieved packet
-
+#include <Arduino.h>
+#include <FS.h>
+#include "PcapFormat.h"
+#define SNAP_LEN 2500
 extern bool useSD;
 
+// Single owner: the processing/UI task. Never called by the Wi-Fi callback.
+// Three cached handles limit FAT churn; bounded batches avoid per-frame writes.
 class Buffer {
-  public:
-    Buffer();
-    bool init();
-    void checkFS(fs::FS* fs);
-    bool open(fs::FS* fs);
-    void close(fs::FS* fs);
-    void addPacket(uint8_t* buf, uint32_t len);
-    void save(fs::FS* fs);
-    void forceSave(fs::FS* fs);
-    void pruneZeroFiles(fs::FS* fs);
-
-  private:
-    void write(int32_t n);
-    void write(uint32_t n);
-    void write(uint16_t n);
-    void write(uint8_t* buf, uint32_t len);
-
-    uint64_t micros64();
-
-    uint8_t* bufA;
-    uint8_t* bufB;
-
-    uint32_t bufSizeA = 0;
-    uint32_t bufSizeB = 0;
-
-    bool writing = false; // acceppting writes to buffer
-    bool useA = true; // writing to bufA or bufB
-    bool saving = false; // currently saving onto the SD card
-
-    char fileNameStr[32] = {0};
-    const char *folderName = "/pcap"; // no trailing slash
-    const char *fileNameTpl = "%s/%04X.pcap"; // hex is better for natural sorting, assume max 65536 files
+ public:
+  struct Context { uint32_t generation = 0; char path[96] = {}; };
+  bool init() { return true; }
+  bool open(fs::FS* fs);
+  void close(fs::FS* fs);
+  void save(fs::FS* fs);
+  bool addPacket(fs::FS* fs, const uint8_t* frame, uint32_t length, uint64_t timestamp,
+                 const uint8_t bssid[6], const uint8_t* ssid, uint8_t ssidLength, Context& context);
+  uint32_t errors() const { return writeErrors; }
+  uint32_t packets() const { return accepted; }
+ private:
+  struct Target {
     File file;
-
-    uint32_t previous_micros = 0;
-    uint32_t micros_high = 0;
+    char path[96] = {};
+    uint8_t data[4096];
+    size_t used = 0;
+    uint32_t lastUse = 0;
+  } targets[3];
+  uint32_t generation = 0, session = 0, sequence = 0, writeErrors = 0, accepted = 0, lastFlush = 0;
+  bool enabled = false;
+  bool flush(Target& target);
+  bool fail();
 };
-
 #endif
